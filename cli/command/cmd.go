@@ -42,7 +42,7 @@ func Execute() {
 	//util.AddFileFilter(".git")
 	AliensBootHome = os.Getenv("ALIENSBOOT_HOME")
 	if AliensBootHome == "" {
-		fmt.Println("can not found env ALENSBOOT_HOME")
+		fmt.Println("can not found env ALIENSBOOT_HOME")
 		os.Exit(1)
 	}
 	if err := RootCmd.Execute(); err != nil {
