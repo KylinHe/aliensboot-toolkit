@@ -15,13 +15,56 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 var globalFilters = make(map[string]struct{})
+
+
+type Content struct {
+	Header string
+	Content string
+	Tail string
+}
+
 //
 func AddFileFilter(name string) {
 	globalFilters[name] = struct{}{}
+}
+
+/**
+ * 字符串首字母转化为大写 ios_bbbbbbbb -> iosBbbbbbbbb
+ */
+func FirstToUpper(str string) string {
+	f := str[0:1]
+	t := str[1:]
+
+	return strings.ToUpper(f) + t
+}
+
+func ParseTags(content string, startTag string, endTag string) []*Content {
+	temp := strings.Split(content, endTag)
+	endContent := temp[len(temp) - 1]
+	reg := regexp.MustCompile(`([\S\s]+?)`+ startTag + `([\S\s]+?)` + endTag  + `([\S\s]+?)`)
+	matchResults := reg.FindAllStringSubmatch(content, -1)
+	result := make([]*Content, len(matchResults))
+	for i:=0; i<len(matchResults); i++ {
+		matchResult := matchResults[i]
+		content := &Content{
+			Header:  matchResult[1],
+			Content: matchResult[2],
+			Tail:    matchResult[3],
+		}
+		if i == len(matchResults) - 1 {
+			content.Tail = endContent
+		}
+		result[i] = content
+	}
+	if len(result) == 0 {
+		fmt.Println("cannot found tag: " + startTag + " and " + endTag)
+	}
+	return result
 }
 
 func IsFileFilter(name string, filters []string) bool {

@@ -13,6 +13,7 @@ import (
 	"github.com/KylinHe/aliensboot-cli/proto"
 	"github.com/KylinHe/aliensboot-core/common/util"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -22,12 +23,20 @@ const (
 	PushTag     = "push"
 )
 
-var message = &ServiceMessage{}
+type ProtoParser struct {
+	serviceData *ServiceData
+	modelData *ModelData
+}
 
-//Handlers:make( map[int]*ProtoHandler)
 
-func ParseProto(protoPath string) *ServiceMessage {
-	message = &ServiceMessage{modules: make(map[string]*Module)}
+func (p *ProtoParser) GetModelData() *ModelData {
+	return p.modelData
+}
+//var message = &ServiceData{}
+
+func (p *ProtoParser) Parse(protoPath string) {
+	p.serviceData = &ServiceData{modules: make(map[string]*Module)}
+	p.modelData = &ModelData{models: make(map[string]*Model)}
 	//"/Users/hejialin/git/server/kylin/src/aliens/protocol/scene/protocol.proto"
 	reader, _ := os.Open(protoPath)
 	defer reader.Close()
@@ -38,81 +47,110 @@ func ParseProto(protoPath string) *ServiceMessage {
 	for _, element := range definition.Elements {
 		switch element.(type) {
 		case *proto.Package:
-			message.PackageName = element.(*proto.Package).Name
-			//log.Println()
+			p.serviceData.PackageName = element.(*proto.Package).Name
+			p.modelData.PackageName = element.(*proto.Package).Name
 			break
 		case *proto.Message:
-			comment := element.(*proto.Message).Doc()
-			if comment == nil {
-				break
-			}
-
-			tag := strings.TrimSpace(comment.Message())
+			tag := getComment(element.(*proto.Message).Doc())
 			if tag == "" {
 				break
 			}
-
-			handleMessage(element.(*proto.Message), tag)
-
-			//proto.Walk(, proto.WithOneof(&messageWalk{tag:tag}.handleMessage))
-
-			//if tag == REQUEST_TAG {
-			//	//message.RequestName = element.(*proto.Message).Name
-			//} else if tag == RESPONSE_TAG  {
-			//	//message.ResponseName = element.(*proto.Message).Name
-			//} else if tag == PUSH_TAG{
-			//	//message.PushName = element.(*proto.Message).Name
-			//}
+			p.handleMessage(element.(*proto.Message), tag)
 		}
 	}
-
-	return message
-
 }
 
-func handleMessage(member *proto.Message, tag string) {
-	for _, visitee := range member.Elements {
-		moduleField, ok := visitee.(*proto.Oneof)
-		if !ok {
-			continue
-		}
+func getComment(comment *proto.Comment) string {
+	//if document == nil {
+	//	return ""
+	//}
+	//comment := document.Doc()
+	if comment == nil {
+		return ""
+	}
+	tag := strings.TrimSpace(comment.Message())
+	return tag
+}
 
-		module := message.EnsureModule(moduleField.Name)
-		for _, moduleHandleField := range moduleField.Elements {
-			field, ok := moduleHandleField.(*proto.OneOfField)
+func (p *ProtoParser)handleMessage(member *proto.Message, tag string) {
+	tags := ParseModelTag(tag)
+	if tags != nil && len(tags) > 0 {
+		p.handleModel(member, tags)
+	} else {
+		for _, visitee := range member.Elements {
+			moduleField, ok := visitee.(*proto.Oneof)
 			if !ok {
 				continue
 			}
-			handler := module.Handlers[field.Sequence]
-			if handler == nil {
-				handler = &ProtoHandler{}
-				module.Handlers[field.Sequence] = handler
+			module := p.serviceData.EnsureModule(moduleField.Name)
+			for _, moduleHandleField := range moduleField.Elements {
+				field, ok := moduleHandleField.(*proto.OneOfField)
+				if !ok {
+					continue
+				}
+				handler := module.Handlers[field.Sequence]
+				if handler == nil {
+					handler = &ProtoHandler{}
+					module.Handlers[field.Sequence] = handler
+				}
+				if field.Doc() != nil {
+					handler.Desc = field.Doc().Message()
+				}
+				if tag == RequestTag {
+					handler.ORequest = util.FirstToUpper(field.Name)
+					handler.ORequestType = util.FirstToUpper(field.Type)
+					//message.RequestName = element.(*proto.Message).Name
+				} else if tag == ResponseTag {
+					handler.OResponse = util.FirstToUpper(field.Name)
+					handler.OResponseType = util.FirstToUpper(field.Type)
+					//message.ResponseName = element.(*proto.Message).Name
+				}
 			}
-			if field.Doc() != nil {
-				handler.Desc = field.Doc().Message()
-			}
-
-			if tag == RequestTag {
-				handler.ORequest = util.FirstToUpper(field.Name)
-				handler.ORequestType = util.FirstToUpper(field.Type)
-				//message.RequestName = element.(*proto.Message).Name
-			} else if tag == ResponseTag {
-				handler.OResponse = util.FirstToUpper(field.Name)
-				handler.OResponseType = util.FirstToUpper(field.Type)
-				//message.ResponseName = element.(*proto.Message).Name
-			} else if tag == PushTag {
-				module.Pushs[field.Sequence] = util.FirstToUpper(field.Name)
-				//message.PushName = element.(*proto.Message).Name
-			}
-			//if handler.ORequest == "" {
-			//	handler.ORequest = util.FirstToUpper(field.Name)
-			//} else {
-			//	handler.OResponse = util.FirstToUpper(field.Name)
-			//}
 		}
 	}
-
-	//m.
-	//proto.Walk(m, proto.WithOneof(handleHandle))
-
 }
+
+func ParseModelTag(tag string) []string {
+	reg := regexp.MustCompile(`^model\[([\S\s]+)\]$`)
+	results := reg.FindStringSubmatch(tag)
+	if len(results) != 2 {
+		return nil
+	}
+	results = strings.Split(results[1], ",")
+	for idx, result := range results {
+		results[idx] = strings.TrimSpace(result)
+	}
+	return results
+}
+
+func (p *ProtoParser) handleModel(member *proto.Message, tags []string)  {
+	model := &Model{
+		Name:   member.Name,
+		Tags:   tags,
+		fields: make(map[string]*Field),
+	}
+	for _, visitee := range member.Elements {
+		field, ok := visitee.(*proto.NormalField)
+		if !ok {
+			continue
+		}
+		field.Doc()
+		comment := getComment(field.InlineComment)
+		//fmt.Println(field.Options)
+		model.AddField(&Field{Name:field.Name, Type:field.Type, Desc:comment, Repeated:field.Repeated})
+	}
+	p.modelData.AddModel(model)
+}
+
+//func handlePushMessage(member *proto.Message) []Field {
+//	result := make([]Field, 0)
+//	for _, visitee := range member.Elements {
+//		field, ok := visitee.(*proto.NormalField)
+//		if !ok {
+//			continue
+//		}
+//		comment := getComment(field)
+//		result = append(result, Field{Name:field.Name, Type:field.Type, Desc:comment, Repeated:field.Repeated})
+//	}
+//	return result
+//}

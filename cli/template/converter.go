@@ -19,27 +19,48 @@ import (
 
 const (
 	MsgSplitStr     = "<message>"
+
 	RequestSplitStr = "<request>" //单请求
+
 )
 
-func Convert(config *conf.CodeGenConfig) {
-	message := ParseProto(config.ProtoPath)
 
+
+type ServiceConverter struct {
+	data *ServiceData
+}
+
+func (s *ServiceConverter) Convert(config *conf.CodeGenConfig) {
+	parser := &ProtoParser{}
+	parser.Parse(config.ProtoPath)
+	s.data = parser.serviceData
 	//fmt.Printf("proto data %v", message.modules["passport"].Handlers[6])
-
 	for _, moduleConfig := range config.Modules {
-		module := message.modules[moduleConfig.Name]
+		module := s.data.modules[moduleConfig.Name]
 		if module == nil {
 			fmt.Printf("module %v is not found in proto file %v \n", moduleConfig.Name, config.ProtoPath)
 			continue
 		}
-
-		convertModule(moduleConfig, module)
+		s.convertModule(moduleConfig, module)
 	}
-
 }
 
-func convertModule(moduleConfig *conf.ModuleConfig, module *Module) {
+func (s *ServiceConverter) ConvertModel(config *conf.CodeGenConfig) {
+	parser := &ProtoParser{}
+	parser.Parse(config.ProtoPath)
+	s.data = parser.serviceData
+	//fmt.Printf("proto data %v", message.modules["passport"].Handlers[6])
+	for _, moduleConfig := range config.Modules {
+		module := s.data.modules[moduleConfig.Name]
+		if module == nil {
+			fmt.Printf("module %v is not found in proto file %v \n", moduleConfig.Name, config.ProtoPath)
+			continue
+		}
+		s.convertModule(moduleConfig, module)
+	}
+}
+
+func (s *ServiceConverter) convertModule(moduleConfig *conf.ModuleConfig, module *Module) {
 	for _, outputConfig := range moduleConfig.Outputs {
 		templatePath := outputConfig.Template
 		////配置模板根目录需要加上根目录
@@ -57,62 +78,62 @@ func convertModule(moduleConfig *conf.ModuleConfig, module *Module) {
 
 		if outputConfig.Prefix == "" {
 			//写一个文件
-			content = convertService(content, module, MsgSplitStr)
-			content = convertService(content, module, RequestSplitStr)
+			content = s.convertService(content, module, MsgSplitStr)
+			content = s.convertService(content, module, RequestSplitStr)
 
 			writeFile(outputConfig.Output, content, outputConfig.Overwrite)
 		} else {
 
-			convertHandle(MsgSplitStr, RequestSplitStr, content, module, outputConfig)
-			convertHandle(RequestSplitStr, MsgSplitStr, content, module, outputConfig)
+			s.convertHandle(MsgSplitStr, RequestSplitStr, content, module, outputConfig)
+			s.convertHandle(RequestSplitStr, MsgSplitStr, content, module, outputConfig)
 		}
 
 	}
 
 }
 
-func convertService(templateContent string, module *Module, split string) string {
+func (s *ServiceConverter) convertService(templateContent string, module *Module, split string) string {
 	results := strings.Split(templateContent, split)
 	header := ""
 	content := ""
 	tailf := ""
 
 	if len(results) == 3 {
-		header = replaceMessage(results[0], module)
-		tailf = replaceMessage(results[2], module)
+		header = s.replaceMessage(results[0], module)
+		tailf = s.replaceMessage(results[2], module)
 		module.Foreach(func(handler *ProtoHandler) bool {
-			handleStr := replaceMessage(results[1], module)
+			handleStr := s.replaceMessage(results[1], module)
 			if split == MsgSplitStr && !handler.IsSession() {
 				return true
 			}
 			if split == RequestSplitStr && !handler.IsRequest() {
 				return true
 			}
-			handleStr = replaceHandle(handleStr, handler)
+			handleStr = s.replaceHandle(handleStr, handler)
 			content += handleStr
 			return true
 		})
 
 	} else {
-		header = replaceMessage(templateContent, module)
+		header = s.replaceMessage(templateContent, module)
 	}
 	return header + content + tailf
 }
 
-func convertHandle(rp1 string, rp2 string, content string, module *Module, outputConfig *conf.Output) {
-	handlers := convertHandler(content, module, rp1)
+func (s *ServiceConverter) convertHandle(rp1 string, rp2 string, content string, module *Module, outputConfig *conf.Output) {
+	handlers := s.convertHandler(content, module, rp1)
 
 	if handlers != nil {
 		for handler, content := range handlers {
 			//templateContent string, module *Module, outputConfig *model.Output, split string, handlerName string
-			newContent := convertHandler1(content, module, rp2, handler)
+			newContent := s.convertHandler1(content, module, rp2, handler)
 			filePath := outputConfig.Output + "/" + strings.Replace(outputConfig.Prefix, "${}", strings.ToLower(handler), -1)
 			writeFile(filePath, newContent, outputConfig.Overwrite)
 		}
 	}
 }
 
-func convertHandler(templateContent string, module *Module, split string) map[string]string {
+func (s *ServiceConverter) convertHandler(templateContent string, module *Module, split string) map[string]string {
 	results := strings.Split(templateContent, split)
 
 	handlers := make(map[string]string)
@@ -122,18 +143,18 @@ func convertHandler(templateContent string, module *Module, split string) map[st
 	tailf := ""
 
 	if len(results) == 3 {
-		header = replaceMessage(results[0], module)
-		tailf = replaceMessage(results[2], module)
+		header = s.replaceMessage(results[0], module)
+		tailf = s.replaceMessage(results[2], module)
 
 		module.Foreach(func(handler *ProtoHandler) bool {
-			handleStr := replaceMessage(results[1], module)
+			handleStr := s.replaceMessage(results[1], module)
 			if split == MsgSplitStr && !handler.IsSession() {
 				return true
 			}
 			if split == RequestSplitStr && !handler.IsRequest() {
 				return true
 			}
-			handleStr = replaceHandle(handleStr, handler)
+			handleStr = s.replaceHandle(handleStr, handler)
 			handlers[handler.GetName()] = header + handleStr + tailf
 			return true
 		})
@@ -141,7 +162,7 @@ func convertHandler(templateContent string, module *Module, split string) map[st
 	return handlers
 }
 
-func convertHandler1(templateContent string, module *Module, split string, handlerName string) string {
+func (s *ServiceConverter) convertHandler1(templateContent string, module *Module, split string, handlerName string) string {
 	results := strings.Split(templateContent, split)
 
 	header := ""
@@ -149,15 +170,15 @@ func convertHandler1(templateContent string, module *Module, split string, handl
 	tailf := ""
 
 	if len(results) == 3 {
-		header = replaceMessage(results[0], module)
-		tailf = replaceMessage(results[2], module)
+		header = s.replaceMessage(results[0], module)
+		tailf = s.replaceMessage(results[2], module)
 
 		content := ""
 		module.Foreach(func(handler *ProtoHandler) bool {
 			if handlerName != handler.GetName() {
 				return true
 			}
-			handleStr := replaceMessage(results[1], module)
+			handleStr := s.replaceMessage(results[1], module)
 
 			if split == MsgSplitStr && !handler.IsSession() {
 				return true
@@ -166,7 +187,7 @@ func convertHandler1(templateContent string, module *Module, split string, handl
 			if split == RequestSplitStr && !handler.IsRequest() {
 				return true
 			}
-			handleStr = replaceHandle(handleStr, handler)
+			handleStr = s.replaceHandle(handleStr, handler)
 			content = header + handleStr + tailf
 			return false
 		})
@@ -174,7 +195,7 @@ func convertHandler1(templateContent string, module *Module, split string, handl
 			return content
 		}
 	} else {
-		header = replaceMessage(templateContent, module)
+		header = s.replaceMessage(templateContent, module)
 	}
 	return header + content + tailf
 }
@@ -202,8 +223,8 @@ func writeFile(filePath string, content string, overwrite bool) {
 	fmt.Printf("gen code file " + filePath + " success! \n")
 }
 
-func replaceMessage(content string, module *Module) string {
-	content = strings.Replace(content, "${package}", message.PackageName, -1)
+func (s *ServiceConverter) replaceMessage(content string, module *Module) string {
+	content = strings.Replace(content, "${package}", s.data.PackageName, -1)
 	content = strings.Replace(content, "${module}", module.Name, -1)
 	content = strings.Replace(content, "${Module}", module.UName, -1)
 	content = strings.Replace(content, "${request}", module.Name, -1)
@@ -211,7 +232,7 @@ func replaceMessage(content string, module *Module) string {
 	return content
 }
 
-func replaceHandle(content string, handler *ProtoHandler) string {
+func (s *ServiceConverter) replaceHandle(content string, handler *ProtoHandler) string {
 	content = strings.Replace(content, "${o_desc}", handler.Desc, -1)
 	content = strings.Replace(content, "${o_request}", handler.ORequest, -1)
 	content = strings.Replace(content, "${o_response}", handler.OResponse, -1)

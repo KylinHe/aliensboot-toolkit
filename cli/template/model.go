@@ -10,53 +10,63 @@
 package template
 
 import (
+	"github.com/KylinHe/aliensboot-cli/util"
 	"sort"
 	"strings"
 )
 
 type Type int
 
-type ModelMessage struct {
-	models map[string]*Model //模型
+type ModelData struct {
+	PackageName string //包名
+	models map[string]*Model //所有模型
+}
+
+func (this *ModelData) AddModel(model *Model) {
+	this.models[model.Name] = model
 }
 
 type Model struct {
-	Name string //
-	//Props map[string]
+	Name string // 模型名
+	Tags []string // 模型标签
+	fields map[string]*Field //模型的所有字段
 }
 
-type ServiceMessage struct {
+func (this *Model) AddField(field *Field) {
+	this.fields[field.Name] = field
+}
+
+type ServiceData struct {
 	PackageName string
 	modules     map[string]*Module
 }
 
-func (this *ServiceMessage) EnsureModule(name string) *Module {
+func (this *ServiceData) EnsureModule(name string) *Module {
 	if this.modules == nil {
 		this.modules = make(map[string]*Module)
 	}
 	module := this.modules[name]
 	if module == nil {
-		module = &Module{Name: name, UName: strFirstToUpper(name), Handlers: make(map[int]*ProtoHandler), Pushs: make(map[int]string)}
+		module = &Module{Name: name, UName: util.FirstToUpper(name), Handlers: make(map[int]*ProtoHandler), Pushs: make(map[int]string)}
 		this.modules[name] = module
 	}
 	return module
 }
 
-/**
- * 字符串首字母转化为大写 ios_bbbbbbbb -> iosBbbbbbbbb
- */
-func strFirstToUpper(str string) string {
-	f := str[0:1]
-	t := str[1:]
-
-	return strings.ToUpper(f) + t
-}
 
 type Module struct {
 	Name     string
 	UName    string
 	Handlers map[int]*ProtoHandler
 	Pushs    map[int]string
+}
+
+type Field struct {
+	Name string
+	Type string
+	Desc string
+	Repeated bool
+	//Field []Field
 }
 
 func (this *Module) Foreach(callback func(handler *ProtoHandler) bool) {

@@ -51,8 +51,10 @@ func GenCode(module string, packageName string, templatePath string, rootPath st
 
 	buildModuleConfig(rootPath, config, moduleName)
 
+	converter := &template.ServiceConverter{}
+	converter.Convert(config)
 	//fmt.Sprintf("config data %+v", config)
-	template.Convert(config)
+	//template.Convert(config)
 }
 
 func buildModuleConfig(rootPath string, config *conf.CodeGenConfig, moduleName string) {
